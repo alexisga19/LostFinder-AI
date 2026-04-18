@@ -1,6 +1,7 @@
 import os
 import uuid
 import sqlite3
+from azure.cognitiveservices.vision.face import FaceClient
 from flask import Flask, render_template, request, redirect, url_for
 from azure.storage.blob import BlobServiceClient
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
@@ -10,7 +11,7 @@ import config
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB máximo
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
@@ -21,6 +22,11 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 vision_client = ComputerVisionClient(
     config.COMPUTER_VISION_ENDPOINT,
     CognitiveServicesCredentials(config.COMPUTER_VISION_KEY)
+)
+
+face_client = FaceClient(
+    config.FACE_ENDPOINT,
+    CognitiveServicesCredentials(config.FACE_KEY)
 )
 
 blob_service_client = BlobServiceClient.from_connection_string(
@@ -44,7 +50,9 @@ def init_db():
             imagen_url TEXT,
             fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             lugar TEXT,
-            usuario TEXT
+            usuario TEXT,
+            personas_detectadas INTEGER,
+            detalle_rostros TEXT
         )
     ''')
     conn.commit()
@@ -86,18 +94,12 @@ def analizar_imagen(ruta_local):
         ]
         resultado = vision_client.analyze_image_in_stream(imagen, caracteristicas)
 
-    # Descripción general
     descripcion = ""
     if resultado.description and resultado.description.captions:
         descripcion = resultado.description.captions[0].text
 
-    # Etiquetas detectadas
     etiquetas = [tag.name for tag in resultado.tags if tag.confidence > 0.7]
-
-    # Objeto principal detectado
     nombre_objeto = etiquetas[0] if etiquetas else "Objeto desconocido"
-
-    # Confianza del primer objeto
     confianza = resultado.tags[0].confidence * 100 if resultado.tags else 0
 
     return {
@@ -107,6 +109,47 @@ def analizar_imagen(ruta_local):
         "confianza": round(confianza, 2)
     }
 
+
+def analizar_rostros(ruta_local):
+    """Detecta si hay personas en la imagen con Face API"""
+    try:
+        with open(ruta_local, 'rb') as imagen:
+            rostros = face_client.face.detect_with_stream(
+                imagen,
+                detection_model='detection_01',
+                recognition_model='recognition_04',
+                return_face_attributes=['age', 'gender', 'emotion']
+            )
+
+        if not rostros:
+            return {
+                "personas_detectadas": 0,
+                "detalle": "No se detectaron personas en la imagen"
+            }
+
+        detalles = []
+        for rostro in rostros:
+            attrs = rostro.face_attributes
+            emocion_principal = max(
+                attrs.emotion.__dict__.items(),
+                key=lambda x: x[1] if isinstance(x[1], float) else 0
+            )
+            detalles.append(
+                f"Persona detectada — Edad aproximada: {int(attrs.age)}, "
+                f"Emoción: {emocion_principal[0]}"
+            )
+
+        return {
+            "personas_detectadas": len(rostros),
+            "detalle": " | ".join(detalles)
+        }
+
+    except Exception as e:
+        print(f"Error en Face API: {e}")
+        return {
+            "personas_detectadas": 0,
+            "detalle": "No se pudo analizar la imagen con Face API"
+        }
 # ──────────────────────────────────────────────
 # RUTAS
 # ──────────────────────────────────────────────
@@ -137,6 +180,9 @@ def upload():
         # Analizar con Computer Vision
         analisis = analizar_imagen(ruta_temporal)
 
+        # Analizar con Face API ← AGREGADO
+        rostros = analizar_rostros(ruta_temporal)
+
         # Subir a Blob Storage
         imagen_url = subir_a_blob(ruta_temporal, nombre_unico)
 
@@ -146,8 +192,8 @@ def upload():
         # Guardar en base de datos
         db = get_db()
         db.execute('''
-            INSERT INTO objetos (nombre, descripcion, etiquetas, confianza, imagen_url, lugar, usuario)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO objetos (nombre, descripcion, etiquetas, confianza, imagen_url, lugar, usuario, personas_detectadas, detalle_rostros)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             analisis['nombre'],
             analisis['descripcion'],
@@ -155,7 +201,9 @@ def upload():
             analisis['confianza'],
             imagen_url,
             lugar,
-            usuario
+            usuario,
+            rostros['personas_detectadas'],
+            rostros['detalle']
         ))
         db.commit()
         objeto_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]

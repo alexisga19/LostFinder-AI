@@ -4,3 +4,5 @@ azure-cognitiveservices-vision-computervision
 msrest
 python-dotenv
 requests
+gunicorn
+azure-cognitiveservices-vision-face

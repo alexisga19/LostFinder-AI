@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="form-section">
+    <h2>📷 Reportar objeto perdido</h2>
+    <p>Sube una foto clara del objeto. La IA lo identificará automáticamente.</p>
+
+    {% if error %}
+    <div class="alert error">{{ error }}</div>
+    {% endif %}
+
+    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
+
+        <div class="campo">
+    <label>Foto del objeto *</label>
+    <div class="opciones-imagen">
+        <button type="button" class="btn-opcion" onclick="activarOpcion('galeria')">
+            🖼️ Subir imagen
+        </button>
+        <button type="button" class="btn-opcion" onclick="activarOpcion('camara')">
+            📷 Tomar foto
+        </button>
+    </div>
+    <input type="file" name="imagen" id="input-imagen" accept="image/*" required style="display:none;">
+</div>
+
+        <div class="campo">
+            <label>¿Dónde se perdió?</label>
+            <input type="text" name="lugar" placeholder="Ej: Biblioteca, Cafetería, Salón 204">
+        </div>
+
+        <div class="campo">
+            <label>Tu nombre</label>
+            <input type="text" name="usuario" placeholder="Ej: Juan Pérez">
+        </div>
+
+        <button type="submit" class="btn-primary">Analizar y registrar objeto</button>
+    </form>
+</section>
+
+{% endblock %}

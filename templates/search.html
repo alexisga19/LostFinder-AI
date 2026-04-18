@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="busqueda">
+    <h2>🔎 Buscar objeto perdido</h2>
+
+    <form action="{{ url_for('search') }}" method="GET">
+        <div class="buscador">
+            <input type="text" name="q" placeholder="Ej: mochila, llaves, laptop..." value="{{ query }}">
+            <button type="submit" class="btn-primary">Buscar</button>
+        </div>
+    </form>
+
+    {% if query %}
+    <p>Resultados para: <strong>{{ query }}</strong></p>
+    {% endif %}
+
+    {% if objetos %}
+    <div class="grid">
+        {% for obj in objetos %}
+        <div class="card">
+            <img src="{{ obj['imagen_url'] }}" alt="{{ obj['nombre'] }}">
+            <div class="card-info">
+                <h3>{{ obj['nombre'] | capitalize }}</h3>
+                <p>{{ obj['descripcion'] }}</p>
+                <p><strong>Etiquetas:</strong> {{ obj['etiquetas'] }}</p>
+                <small>📍 {{ obj['lugar'] }} — {{ obj['fecha'] }}</small>
+                <small>👤 {{ obj['usuario'] }}</small>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No se encontraron objetos {% if query %}para "{{ query }}"{% endif %}.</p>
+    {% endif %}
+
+</section>
+
+{% endblock %}

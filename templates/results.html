@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="resultado">
+    <h2>✅ Objeto registrado exitosamente</h2>
+
+    <div class="resultado-card">
+        <img src="{{ objeto['imagen_url'] }}" alt="{{ objeto['nombre'] }}">
+
+        <div class="resultado-info">
+            <h3>{{ objeto['nombre'] | capitalize }}</h3>
+
+            <table>
+                <tr>
+                    <td><strong>Descripción IA:</strong></td>
+                    <td>{{ objeto['descripcion'] }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Etiquetas detectadas:</strong></td>
+                    <td>{{ objeto['etiquetas'] }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Confianza del análisis:</strong></td>
+                    <td>{{ objeto['confianza'] }}%</td>
+                </tr>
+                <tr>
+                    <td><strong>Lugar:</strong></td>
+                    <td>{{ objeto['lugar'] }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Reportado por:</strong></td>
+                    <td>{{ objeto['usuario'] }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Fecha:</strong></td>
+                    <td>{{ objeto['fecha'] }}</td>
+                </tr>
+            </table>
+
+            <div class="acciones">
+                <a href="{{ url_for('upload') }}" class="btn-primary">Reportar otro objeto</a>
+                <a href="{{ url_for('search') }}" class="btn-secondary">Buscar objetos</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

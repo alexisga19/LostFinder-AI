@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="hero">
+    <h1>🔍 LostFinder AI</h1>
+    <p>Sube la foto de tu objeto perdido y la inteligencia artificial lo identificará automáticamente.</p>
+    <a href="{{ url_for('upload') }}" class="btn-primary">Reportar objeto perdido</a>
+    <a href="{{ url_for('search') }}" class="btn-secondary">Buscar un objeto</a>
+</section>
+
+<section class="recientes">
+    <h2>Objetos registrados recientemente</h2>
+
+    {% if objetos %}
+    <div class="grid">
+        {% for obj in objetos %}
+        <div class="card">
+            <img src="{{ obj['imagen_url'] }}" alt="{{ obj['nombre'] }}">
+            <div class="card-info">
+                <h3>{{ obj['nombre'] | capitalize }}</h3>
+                <p>{{ obj['descripcion'] }}</p>
+                <small>📍 {{ obj['lugar'] }} — {{ obj['fecha'] }}</small>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>Aún no hay objetos registrados. ¡Sé el primero!</p>
+    {% endif %}
+</section>
+
+{% endblock %}

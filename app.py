@@ -15,6 +15,9 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
+# Ruta persistente para App Service
+DB_PATH = '/home/database/lostfinder.db'
+
 # ──────────────────────────────────────────────
 # CLIENTES DE AZURE
 # ──────────────────────────────────────────────
@@ -38,7 +41,8 @@ blob_service_client = BlobServiceClient.from_connection_string(
 # ──────────────────────────────────────────────
 
 def init_db():
-    conn = sqlite3.connect('database/lostfinder.db')
+    os.makedirs('/home/database', exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS objetos (
@@ -59,7 +63,7 @@ def init_db():
     conn.close()
 
 def get_db():
-    conn = sqlite3.connect('database/lostfinder.db')
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -150,6 +154,7 @@ def analizar_rostros(ruta_local):
             "personas_detectadas": 0,
             "detalle": "No se pudo analizar la imagen con Face API"
         }
+
 # ──────────────────────────────────────────────
 # RUTAS
 # ──────────────────────────────────────────────
@@ -180,7 +185,7 @@ def upload():
         # Analizar con Computer Vision
         analisis = analizar_imagen(ruta_temporal)
 
-        # Analizar con Face API ← AGREGADO
+        # Analizar con Face API
         rostros = analizar_rostros(ruta_temporal)
 
         # Subir a Blob Storage
@@ -244,8 +249,10 @@ def search():
 # INICIO
 # ──────────────────────────────────────────────
 
+# Inicializar carpetas y base de datos siempre
+os.makedirs('/home/database', exist_ok=True)
+os.makedirs('uploads', exist_ok=True)
+init_db()
+
 if __name__ == '__main__':
-    os.makedirs('uploads', exist_ok=True)
-    os.makedirs('database', exist_ok=True)
-    init_db()
     app.run(debug=True)

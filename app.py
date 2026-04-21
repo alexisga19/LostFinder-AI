@@ -1,12 +1,14 @@
 import os
 import uuid
 import sqlite3
+import platform
 from azure.cognitiveservices.vision.face import FaceClient
 from flask import Flask, render_template, request, redirect, url_for
 from azure.storage.blob import BlobServiceClient
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
 from msrest.authentication import CognitiveServicesCredentials
+from azure.communication.email import EmailClient
 import config
 
 app = Flask(__name__)
@@ -15,8 +17,11 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
-# Ruta persistente para App Service
-DB_PATH = '/home/database/lostfinder.db'
+# Ruta según sistema operativo
+if platform.system() == 'Windows':
+    DB_PATH = os.path.join(os.path.dirname(__file__), 'database', 'lostfinder.db')
+else:
+    DB_PATH = '/home/database/lostfinder.db'
 
 # ──────────────────────────────────────────────
 # CLIENTES DE AZURE
@@ -36,12 +41,16 @@ blob_service_client = BlobServiceClient.from_connection_string(
     config.BLOB_CONNECTION_STRING
 )
 
+email_client = EmailClient.from_connection_string(
+    config.COMMUNICATION_CONNECTION_STRING
+)
+
 # ──────────────────────────────────────────────
 # BASE DE DATOS SQLITE
 # ──────────────────────────────────────────────
 
 def init_db():
-    os.makedirs('/home/database', exist_ok=True)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -56,7 +65,16 @@ def init_db():
             lugar TEXT,
             usuario TEXT,
             personas_detectadas INTEGER,
-            detalle_rostros TEXT
+            detalle_rostros TEXT,
+            entregado_objetos_perdidos INTEGER DEFAULT 0
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS alertas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            termino_busqueda TEXT,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -76,7 +94,6 @@ def allowed_file(filename):
 
 
 def subir_a_blob(ruta_local, nombre_archivo):
-    """Sube imagen a Azure Blob Storage y retorna la URL pública"""
     blob_client = blob_service_client.get_blob_client(
         container=config.BLOB_CONTAINER_NAME,
         blob=nombre_archivo
@@ -89,7 +106,6 @@ def subir_a_blob(ruta_local, nombre_archivo):
 
 
 def analizar_imagen(ruta_local):
-    """Analiza imagen con Azure Computer Vision y retorna resultados"""
     with open(ruta_local, 'rb') as imagen:
         caracteristicas = [
             VisualFeatureTypes.description,
@@ -115,7 +131,6 @@ def analizar_imagen(ruta_local):
 
 
 def analizar_rostros(ruta_local):
-    """Detecta si hay personas en la imagen con Face API"""
     try:
         with open(ruta_local, 'rb') as imagen:
             rostros = face_client.face.detect_with_stream(
@@ -126,10 +141,7 @@ def analizar_rostros(ruta_local):
             )
 
         if not rostros:
-            return {
-                "personas_detectadas": 0,
-                "detalle": "No se detectaron personas en la imagen"
-            }
+            return {"personas_detectadas": 0, "detalle": "No se detectaron personas en la imagen"}
 
         detalles = []
         for rostro in rostros:
@@ -143,17 +155,78 @@ def analizar_rostros(ruta_local):
                 f"Emoción: {emocion_principal[0]}"
             )
 
-        return {
-            "personas_detectadas": len(rostros),
-            "detalle": " | ".join(detalles)
-        }
+        return {"personas_detectadas": len(rostros), "detalle": " | ".join(detalles)}
 
     except Exception as e:
         print(f"Error en Face API: {e}")
-        return {
-            "personas_detectadas": 0,
-            "detalle": "No se pudo analizar la imagen con Face API"
+        return {"personas_detectadas": 0, "detalle": "No se pudo analizar la imagen con Face API"}
+
+
+def enviar_notificacion(email_destino, termino, objeto):
+    """Envía email de notificación cuando se sube un objeto relacionado a una búsqueda"""
+    try:
+        mensaje = {
+            "senderAddress": config.SENDER_EMAIL,
+            "recipients": {"to": [{"address": email_destino}]},
+            "content": {
+                "subject": f"🔍 LostFinder AI — Encontramos un objeto relacionado a '{termino}'",
+                "html": f"""
+                <html>
+                <body style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2 style="color: #0078d4;">🔍 LostFinder AI</h2>
+                    <p>Hola, registraste una alerta para búsquedas relacionadas con <strong>"{termino}"</strong>.</p>
+                    <p>Se acaba de registrar un objeto que podría interesarte:</p>
+                    <table style="border-collapse: collapse; width: 100%;">
+                        <tr>
+                            <td style="padding: 8px;"><strong>Objeto:</strong></td>
+                            <td style="padding: 8px;">{objeto['nombre']}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><strong>Descripción:</strong></td>
+                            <td style="padding: 8px;">{objeto['descripcion']}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><strong>Lugar:</strong></td>
+                            <td style="padding: 8px;">{objeto['lugar']}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><strong>Reportado por:</strong></td>
+                            <td style="padding: 8px;">{objeto['usuario']}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px;"><strong>Entregado a objetos perdidos:</strong></td>
+                            <td style="padding: 8px;">{'✅ Sí' if objeto['entregado_objetos_perdidos'] else '❌ No'}</td>
+                        </tr>
+                    </table>
+                    <br>
+                    <img src="{objeto['imagen_url']}" style="max-width: 300px; border-radius: 8px;">
+                    <br><br>
+                    <p style="color: #999; font-size: 0.85rem;">LostFinder AI — Powered by Microsoft Azure</p>
+                </body>
+                </html>
+                """
+            }
         }
+        email_client.begin_send(mensaje)
+    except Exception as e:
+        print(f"Error enviando email: {e}")
+
+
+def notificar_alertas(etiquetas, objeto):
+    """Busca alertas registradas y notifica si hay coincidencias"""
+    try:
+        db = get_db()
+        alertas = db.execute('SELECT * FROM alertas').fetchall()
+        db.close()
+
+        etiquetas_lista = [e.strip().lower() for e in etiquetas.split(',')]
+
+        for alerta in alertas:
+            termino = alerta['termino_busqueda'].lower()
+            if any(termino in etiqueta for etiqueta in etiquetas_lista):
+                enviar_notificacion(alerta['email'], alerta['termino_busqueda'], objeto)
+    except Exception as e:
+        print(f"Error en notificar_alertas: {e}")
 
 # ──────────────────────────────────────────────
 # RUTAS
@@ -173,32 +246,24 @@ def upload():
         archivo = request.files.get('imagen')
         lugar = request.form.get('lugar', 'No especificado')
         usuario = request.form.get('usuario', 'Anónimo')
+        entregado = 1 if request.form.get('entregado') else 0
 
         if not archivo or not allowed_file(archivo.filename):
             return render_template('upload.html', error="Solo se permiten imágenes JPG o PNG.")
 
-        # Guardar imagen temporalmente
         nombre_unico = f"{uuid.uuid4().hex}_{archivo.filename}"
         ruta_temporal = os.path.join(app.config['UPLOAD_FOLDER'], nombre_unico)
         archivo.save(ruta_temporal)
 
-        # Analizar con Computer Vision
         analisis = analizar_imagen(ruta_temporal)
-
-        # Analizar con Face API
         rostros = analizar_rostros(ruta_temporal)
-
-        # Subir a Blob Storage
         imagen_url = subir_a_blob(ruta_temporal, nombre_unico)
-
-        # Eliminar archivo temporal
         os.remove(ruta_temporal)
 
-        # Guardar en base de datos
         db = get_db()
         db.execute('''
-            INSERT INTO objetos (nombre, descripcion, etiquetas, confianza, imagen_url, lugar, usuario, personas_detectadas, detalle_rostros)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO objetos (nombre, descripcion, etiquetas, confianza, imagen_url, lugar, usuario, personas_detectadas, detalle_rostros, entregado_objetos_perdidos)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             analisis['nombre'],
             analisis['descripcion'],
@@ -208,11 +273,15 @@ def upload():
             lugar,
             usuario,
             rostros['personas_detectadas'],
-            rostros['detalle']
+            rostros['detalle'],
+            entregado
         ))
         db.commit()
         objeto_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+        objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
         db.close()
+
+        notificar_alertas(analisis['etiquetas'], objeto)
 
         return redirect(url_for('resultado', objeto_id=objeto_id))
 
@@ -232,6 +301,20 @@ def resultado(objeto_id):
 @app.route('/search')
 def search():
     query = request.args.get('q', '')
+    email_alerta = request.args.get('email_alerta', '')
+
+    if query and email_alerta:
+        try:
+            db = get_db()
+            db.execute(
+                'INSERT INTO alertas (email, termino_busqueda) VALUES (?, ?)',
+                (email_alerta, query)
+            )
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Error guardando alerta: {e}")
+
     db = get_db()
     if query:
         objetos = db.execute('''
@@ -242,15 +325,14 @@ def search():
     else:
         objetos = db.execute('SELECT * FROM objetos ORDER BY fecha DESC').fetchall()
     db.close()
-    return render_template('search.html', objetos=objetos, query=query)
+    return render_template('search.html', objetos=objetos, query=query, email_alerta=email_alerta)
 
 
 # ──────────────────────────────────────────────
 # INICIO
 # ──────────────────────────────────────────────
 
-# Inicializar carpetas y base de datos siempre
-os.makedirs('/home/database', exist_ok=True)
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 os.makedirs('uploads', exist_ok=True)
 init_db()
 

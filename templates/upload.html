@@ -13,17 +13,17 @@
     <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
 
         <div class="campo">
-    <label>Foto del objeto *</label>
-    <div class="opciones-imagen">
-        <button type="button" class="btn-opcion" onclick="activarOpcion('galeria')">
-            🖼️ Subir imagen
-        </button>
-        <button type="button" class="btn-opcion" onclick="activarOpcion('camara')">
-            📷 Tomar foto
-        </button>
-    </div>
-    <input type="file" name="imagen" id="input-imagen" accept="image/*" required style="display:none;">
-</div>
+            <label>Foto del objeto *</label>
+            <div class="opciones-imagen">
+                <button type="button" class="btn-opcion" onclick="activarOpcion('galeria')">
+                    🖼️ Subir imagen
+                </button>
+                <button type="button" class="btn-opcion" onclick="activarOpcion('camara')">
+                    📷 Tomar foto
+                </button>
+            </div>
+            <input type="file" name="imagen" id="input-imagen" accept="image/*" required style="display:none;">
+        </div>
 
         <div class="campo">
             <label>¿Dónde se perdió?</label>
@@ -33,6 +33,16 @@
         <div class="campo">
             <label>Tu nombre</label>
             <input type="text" name="usuario" placeholder="Ej: Juan Pérez">
+        </div>
+
+    
+
+        <div class="campo">
+            <label>¿Qué hiciste con el objeto?</label>
+            <div class="checkbox-opcion">
+                <input type="checkbox" name="entregado" id="entregado" value="1">
+                <label for="entregado">✅ Entregué el objeto al departamento de objetos perdidos</label>
+            </div>
         </div>
 
         <button type="submit" class="btn-primary">Analizar y registrar objeto</button>

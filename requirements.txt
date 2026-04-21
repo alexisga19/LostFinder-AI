@@ -1,8 +1,9 @@
 flask
 azure-storage-blob
 azure-cognitiveservices-vision-computervision
+azure-cognitiveservices-vision-face
+azure-communication-email
 msrest
 python-dotenv
 requests
 gunicorn
-azure-cognitiveservices-vision-face

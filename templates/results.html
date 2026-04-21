@@ -40,6 +40,11 @@
                     <td><strong>Reportado por:</strong></td>
                     <td>{{ objeto['usuario'] }}</td>
                 </tr>
+
+                <tr>
+    <td><strong>Entregado a objetos perdidos:</strong></td>
+    <td>{% if objeto['entregado_objetos_perdidos'] %}✅ Sí, fue entregado{% else %}❌ No, permanece donde se encontró{% endif %}</td>
+</tr>
                 <tr>
                     <td><strong>Fecha:</strong></td>
                     <td>{{ objeto['fecha'] }}</td>

@@ -21,6 +21,13 @@
                 <h3>{{ obj['nombre'] | capitalize }}</h3>
                 <p>{{ obj['descripcion'] }}</p>
                 <small>📍 {{ obj['lugar'] }} — {{ obj['fecha'] }}</small>
+                <div class="estado-entrega">
+                    {% if obj['entregado_objetos_perdidos'] %}
+                        <span class="badge entregado">✅ Entregado a objetos perdidos</span>
+                    {% else %}
+                        <span class="badge no-entregado">📍 Permanece donde se encontró</span>
+                    {% endif %}
+                </div>
             </div>
         </div>
         {% endfor %}

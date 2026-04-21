@@ -10,6 +10,13 @@
             <input type="text" name="q" placeholder="Ej: mochila, llaves, laptop..." value="{{ query }}">
             <button type="submit" class="btn-primary">Buscar</button>
         </div>
+        <div class="campo" style="margin-top: 1rem;">
+            <label>📧 Notificarme si aparece algo relacionado</label>
+            <div style="display:flex; gap:1rem; align-items:center;">
+                <input type="email" name="email_alerta" placeholder="tucorreo@gmail.com" value="{{ email_alerta }}" style="flex:1; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                <small style="color:#999;">Opcional</small>
+            </div>
+        </div>
     </form>
 
     {% if query %}
@@ -27,6 +34,13 @@
                 <p><strong>Etiquetas:</strong> {{ obj['etiquetas'] }}</p>
                 <small>📍 {{ obj['lugar'] }} — {{ obj['fecha'] }}</small>
                 <small>👤 {{ obj['usuario'] }}</small>
+                <div class="estado-entrega">
+                    {% if obj['entregado_objetos_perdidos'] %}
+                        <span class="badge entregado">✅ Entregado a objetos perdidos</span>
+                    {% else %}
+                        <span class="badge no-entregado">📍 Permanece donde se encontró</span>
+                    {% endif %}
+                </div>
             </div>
         </div>
         {% endfor %}

@@ -2,6 +2,7 @@ import os
 import uuid
 import sqlite3
 import platform
+import requests
 from azure.cognitiveservices.vision.face import FaceClient
 from flask import Flask, render_template, request, redirect, url_for
 from azure.storage.blob import BlobServiceClient
@@ -93,7 +94,41 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def traducir(texto):
+    """Traduce texto del inglés al español usando Azure Translator"""
+    try:
+        url = "https://api.cognitive.microsofttranslator.com/translate"
+        params = {'api-version': '3.0', 'from': 'en', 'to': 'es'}
+        headers = {
+            'Ocp-Apim-Subscription-Key': config.TRANSLATOR_KEY,
+            'Ocp-Apim-Subscription-Region': config.TRANSLATOR_REGION,
+            'Content-Type': 'application/json'
+        }
+        body = [{'text': texto}]
+        response = requests.post(url, params=params, headers=headers, json=body)
+        resultado = response.json()
+        return resultado[0]['translations'][0]['text']
+    except Exception as e:
+        print(f"Error en traducción: {e}")
+        return texto
+
+
+def traducir_etiquetas(etiquetas_str):
+    """Traduce cada etiqueta individualmente al español"""
+    try:
+        etiquetas = [e.strip() for e in etiquetas_str.split(',')]
+        etiquetas_es = []
+        for etiqueta in etiquetas:
+            traducida = traducir(etiqueta)
+            etiquetas_es.append(traducida)
+        return ', '.join(etiquetas_es)
+    except Exception as e:
+        print(f"Error traduciendo etiquetas: {e}")
+        return etiquetas_str
+
+
 def subir_a_blob(ruta_local, nombre_archivo):
+    """Sube imagen a Azure Blob Storage y retorna la URL pública"""
     blob_client = blob_service_client.get_blob_client(
         container=config.BLOB_CONTAINER_NAME,
         blob=nombre_archivo
@@ -106,6 +141,7 @@ def subir_a_blob(ruta_local, nombre_archivo):
 
 
 def analizar_imagen(ruta_local):
+    """Analiza imagen con Azure Computer Vision y retorna resultados en español"""
     with open(ruta_local, 'rb') as imagen:
         caracteristicas = [
             VisualFeatureTypes.description,
@@ -114,23 +150,34 @@ def analizar_imagen(ruta_local):
         ]
         resultado = vision_client.analyze_image_in_stream(imagen, caracteristicas)
 
-    descripcion = ""
+    # Descripción traducida
+    descripcion_en = ""
     if resultado.description and resultado.description.captions:
-        descripcion = resultado.description.captions[0].text
+        descripcion_en = resultado.description.captions[0].text
+    descripcion_es = traducir(descripcion_en) if descripcion_en else ""
 
-    etiquetas = [tag.name for tag in resultado.tags if tag.confidence > 0.7]
-    nombre_objeto = etiquetas[0] if etiquetas else "Objeto desconocido"
+    # Etiquetas traducidas
+    etiquetas_en = [tag.name for tag in resultado.tags if tag.confidence > 0.7]
+    etiquetas_str_en = ", ".join(etiquetas_en)
+    etiquetas_es = traducir_etiquetas(etiquetas_str_en) if etiquetas_en else ""
+
+    # Nombre del objeto traducido
+    nombre_en = etiquetas_en[0] if etiquetas_en else "Unknown object"
+    nombre_es = traducir(nombre_en)
+
     confianza = resultado.tags[0].confidence * 100 if resultado.tags else 0
 
     return {
-        "nombre": nombre_objeto,
-        "descripcion": descripcion,
-        "etiquetas": ", ".join(etiquetas),
+        "nombre": nombre_es,
+        "descripcion": descripcion_es,
+        "etiquetas": etiquetas_es,
+        "etiquetas_en": etiquetas_str_en,
         "confianza": round(confianza, 2)
     }
 
 
 def analizar_rostros(ruta_local):
+    """Detecta si hay personas en la imagen con Face API"""
     try:
         with open(ruta_local, 'rb') as imagen:
             rostros = face_client.face.detect_with_stream(
@@ -141,7 +188,10 @@ def analizar_rostros(ruta_local):
             )
 
         if not rostros:
-            return {"personas_detectadas": 0, "detalle": "No se detectaron personas en la imagen"}
+            return {
+                "personas_detectadas": 0,
+                "detalle": "No se detectaron personas en la imagen"
+            }
 
         detalles = []
         for rostro in rostros:
@@ -155,15 +205,21 @@ def analizar_rostros(ruta_local):
                 f"Emoción: {emocion_principal[0]}"
             )
 
-        return {"personas_detectadas": len(rostros), "detalle": " | ".join(detalles)}
+        return {
+            "personas_detectadas": len(rostros),
+            "detalle": " | ".join(detalles)
+        }
 
     except Exception as e:
         print(f"Error en Face API: {e}")
-        return {"personas_detectadas": 0, "detalle": "No se pudo analizar la imagen con Face API"}
+        return {
+            "personas_detectadas": 0,
+            "detalle": "No se pudo analizar la imagen con Face API"
+        }
 
 
 def enviar_notificacion(email_destino, termino, objeto):
-    """Envía email de notificación cuando se sube un objeto relacionado a una búsqueda"""
+    """Envía email de notificación cuando se sube un objeto relacionado"""
     try:
         mensaje = {
             "senderAddress": config.SENDER_EMAIL,
@@ -173,7 +229,7 @@ def enviar_notificacion(email_destino, termino, objeto):
                 "html": f"""
                 <html>
                 <body style="font-family: Arial, sans-serif; padding: 20px;">
-                    <h2 style="color: #0078d4;">🔍 LostFinder AI</h2>
+                    <h2 style="color: #c0392b;">🔍 LostFinder AI</h2>
                     <p>Hola, registraste una alerta para búsquedas relacionadas con <strong>"{termino}"</strong>.</p>
                     <p>Se acaba de registrar un objeto que podría interesarte:</p>
                     <table style="border-collapse: collapse; width: 100%;">
@@ -212,14 +268,14 @@ def enviar_notificacion(email_destino, termino, objeto):
         print(f"Error enviando email: {e}")
 
 
-def notificar_alertas(etiquetas, objeto):
+def notificar_alertas(etiquetas_en, objeto):
     """Busca alertas registradas y notifica si hay coincidencias"""
     try:
         db = get_db()
         alertas = db.execute('SELECT * FROM alertas').fetchall()
         db.close()
 
-        etiquetas_lista = [e.strip().lower() for e in etiquetas.split(',')]
+        etiquetas_lista = [e.strip().lower() for e in etiquetas_en.split(',')]
 
         for alerta in alertas:
             termino = alerta['termino_busqueda'].lower()
@@ -281,7 +337,7 @@ def upload():
         objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
         db.close()
 
-        notificar_alertas(analisis['etiquetas'], objeto)
+        notificar_alertas(analisis['etiquetas_en'], objeto)
 
         return redirect(url_for('resultado', objeto_id=objeto_id))
 

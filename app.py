@@ -384,6 +384,29 @@ def search():
     return render_template('search.html', objetos=objetos, query=query, email_alerta=email_alerta)
 
 
+@app.route('/eliminar/<int:objeto_id>', methods=['POST'])
+def eliminar(objeto_id):
+    db = get_db()
+    objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
+
+    if objeto:
+        # Eliminar imagen de Blob Storage
+        try:
+            nombre_blob = objeto['imagen_url'].split('/')[-1]
+            blob_client = blob_service_client.get_blob_client(
+                container=config.BLOB_CONTAINER_NAME,
+                blob=nombre_blob
+            )
+            blob_client.delete_blob()
+        except Exception as e:
+            print(f"Error eliminando imagen de Blob Storage: {e}")
+
+        # Eliminar registro de la base de datos
+        db.execute('DELETE FROM objetos WHERE id = ?', (objeto_id,))
+        db.commit()
+
+    db.close()
+    return redirect(url_for('index'))
 # ──────────────────────────────────────────────
 # INICIO
 # ──────────────────────────────────────────────

@@ -40,14 +40,13 @@
                     <td><strong>Reportado por:</strong></td>
                     <td>{{ objeto['usuario'] }}</td>
                 </tr>
-
-                <tr>
-    <td><strong>Entregado a objetos perdidos:</strong></td>
-    <td>{% if objeto['entregado_objetos_perdidos'] %}✅ Sí, fue entregado{% else %}❌ No, permanece donde se encontró{% endif %}</td>
-</tr>
                 <tr>
                     <td><strong>Fecha:</strong></td>
                     <td>{{ objeto['fecha'] }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Entregado a objetos perdidos:</strong></td>
+                    <td>{% if objeto['entregado_objetos_perdidos'] %}✅ Sí, fue entregado al departamento{% else %}❌ No, permanece donde se encontró{% endif %}</td>
                 </tr>
             </table>
 
@@ -55,8 +54,24 @@
                 <a href="{{ url_for('upload') }}" class="btn-primary">Reportar otro objeto</a>
                 <a href="{{ url_for('search') }}" class="btn-secondary">Buscar objetos</a>
             </div>
+
+            <div class="zona-encontrado">
+                <p>¿Este es tu objeto perdido?</p>
+                <form action="{{ url_for('eliminar', objeto_id=objeto['id']) }}" method="POST" onsubmit="return confirmarEliminacion()">
+                    <button type="submit" class="btn-encontrado">
+                        🎉 ¡Lo encontré! Marcar como recuperado
+                    </button>
+                </form>
+            </div>
+
         </div>
     </div>
 </section>
+
+<script>
+function confirmarEliminacion() {
+    return confirm('¿Confirmas que encontraste tu objeto? Esta acción lo eliminará del sistema.');
+}
+</script>
 
 {% endblock %}

@@ -41,6 +41,9 @@
                         <span class="badge no-entregado">📍 Permanece donde se encontró</span>
                     {% endif %}
                 </div>
+                <a href="{{ url_for('resultado', objeto_id=obj['id']) }}" class="btn-ver-detalle">
+                    🔍 Ver detalle y marcar como encontrado
+                </a>
             </div>
         </div>
         {% endfor %}

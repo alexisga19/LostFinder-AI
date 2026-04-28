@@ -342,8 +342,7 @@ def upload():
         objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
         db.close()
 
-        notificar_alertas(analisis['etiquetas_en'], objeto)
-
+        notificar_alertas(analisis['etiquetas'], objeto)
         return redirect(url_for('resultado', objeto_id=objeto_id))
 
     return render_template('upload.html')

@@ -221,6 +221,10 @@ def analizar_rostros(ruta_local):
 def enviar_notificacion(email_destino, termino, objeto):
     """Envía email de notificación cuando se sube un objeto relacionado"""
     try:
+        print(f"Intentando enviar email a: {email_destino}")
+        print(f"Sender configurado: {config.SENDER_EMAIL}")
+        print(f"Connection string definida: {bool(config.COMMUNICATION_CONNECTION_STRING)}")
+
         mensaje = {
             "senderAddress": config.SENDER_EMAIL,
             "recipients": {"to": [{"address": email_destino}]},
@@ -263,10 +267,11 @@ def enviar_notificacion(email_destino, termino, objeto):
                 """
             }
         }
-        email_client.begin_send(mensaje)
+        poller = email_client.begin_send(mensaje)
+        resultado = poller.result()
+        print(f"Email enviado exitosamente: {resultado}")
     except Exception as e:
-        print(f"Error enviando email: {e}")
-
+        print(f"Error enviando email: {type(e).__name__}: {e}")
 
 def notificar_alertas(etiquetas_en, objeto):
     """Busca alertas registradas y notifica si hay coincidencias"""

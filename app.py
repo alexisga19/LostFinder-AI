@@ -17,6 +17,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+MAX_CORREOS_POR_ALERTA = 5
 
 # Ruta según sistema operativo
 if platform.system() == 'Windows':
@@ -75,7 +76,9 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             termino_busqueda TEXT,
-            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            correos_enviados INTEGER DEFAULT 0,
+            activa INTEGER DEFAULT 1
         )
     ''')
     conn.commit()
@@ -95,7 +98,6 @@ def allowed_file(filename):
 
 
 def traducir(texto):
-    """Traduce texto del inglés al español usando Azure Translator"""
     try:
         url = "https://api.cognitive.microsofttranslator.com/translate"
         params = {'api-version': '3.0', 'from': 'en', 'to': 'es'}
@@ -114,13 +116,9 @@ def traducir(texto):
 
 
 def traducir_etiquetas(etiquetas_str):
-    """Traduce cada etiqueta individualmente al español"""
     try:
         etiquetas = [e.strip() for e in etiquetas_str.split(',')]
-        etiquetas_es = []
-        for etiqueta in etiquetas:
-            traducida = traducir(etiqueta)
-            etiquetas_es.append(traducida)
+        etiquetas_es = [traducir(e) for e in etiquetas]
         return ', '.join(etiquetas_es)
     except Exception as e:
         print(f"Error traduciendo etiquetas: {e}")
@@ -128,20 +126,17 @@ def traducir_etiquetas(etiquetas_str):
 
 
 def subir_a_blob(ruta_local, nombre_archivo):
-    """Sube imagen a Azure Blob Storage y retorna la URL pública"""
     blob_client = blob_service_client.get_blob_client(
         container=config.BLOB_CONTAINER_NAME,
         blob=nombre_archivo
     )
     with open(ruta_local, 'rb') as data:
         blob_client.upload_blob(data, overwrite=True)
-
     url = f"https://{blob_service_client.account_name}.blob.core.windows.net/{config.BLOB_CONTAINER_NAME}/{nombre_archivo}"
     return url
 
 
 def analizar_imagen(ruta_local):
-    """Analiza imagen con Azure Computer Vision y retorna resultados en español"""
     with open(ruta_local, 'rb') as imagen:
         caracteristicas = [
             VisualFeatureTypes.description,
@@ -150,21 +145,17 @@ def analizar_imagen(ruta_local):
         ]
         resultado = vision_client.analyze_image_in_stream(imagen, caracteristicas)
 
-    # Descripción traducida
     descripcion_en = ""
     if resultado.description and resultado.description.captions:
         descripcion_en = resultado.description.captions[0].text
     descripcion_es = traducir(descripcion_en) if descripcion_en else ""
 
-    # Etiquetas traducidas
     etiquetas_en = [tag.name for tag in resultado.tags if tag.confidence > 0.7]
     etiquetas_str_en = ", ".join(etiquetas_en)
     etiquetas_es = traducir_etiquetas(etiquetas_str_en) if etiquetas_en else ""
 
-    # Nombre del objeto traducido
     nombre_en = etiquetas_en[0] if etiquetas_en else "Unknown object"
     nombre_es = traducir(nombre_en)
-
     confianza = resultado.tags[0].confidence * 100 if resultado.tags else 0
 
     return {
@@ -177,7 +168,6 @@ def analizar_imagen(ruta_local):
 
 
 def analizar_rostros(ruta_local):
-    """Detecta si hay personas en la imagen con Face API"""
     try:
         with open(ruta_local, 'rb') as imagen:
             rostros = face_client.face.detect_with_stream(
@@ -188,10 +178,7 @@ def analizar_rostros(ruta_local):
             )
 
         if not rostros:
-            return {
-                "personas_detectadas": 0,
-                "detalle": "No se detectaron personas en la imagen"
-            }
+            return {"personas_detectadas": 0, "detalle": "No se detectaron personas en la imagen"}
 
         detalles = []
         for rostro in rostros:
@@ -204,26 +191,18 @@ def analizar_rostros(ruta_local):
                 f"Persona detectada — Edad aproximada: {int(attrs.age)}, "
                 f"Emoción: {emocion_principal[0]}"
             )
-
-        return {
-            "personas_detectadas": len(rostros),
-            "detalle": " | ".join(detalles)
-        }
+        return {"personas_detectadas": len(rostros), "detalle": " | ".join(detalles)}
 
     except Exception as e:
         print(f"Error en Face API: {e}")
-        return {
-            "personas_detectadas": 0,
-            "detalle": "No se pudo analizar la imagen con Face API"
-        }
+        return {"personas_detectadas": 0, "detalle": "No se pudo analizar la imagen con Face API"}
 
 
-def enviar_notificacion(email_destino, termino, objeto):
-    """Envía email de notificación cuando se sube un objeto relacionado"""
+def enviar_notificacion(alerta_id, email_destino, termino, objeto, correos_enviados):
+    """Envía email con enlace para cancelar la alerta"""
     try:
-        print(f"Intentando enviar email a: {email_destino}")
-        print(f"Sender configurado: {config.SENDER_EMAIL}")
-        print(f"Connection string definida: {bool(config.COMMUNICATION_CONNECTION_STRING)}")
+        correos_restantes = MAX_CORREOS_POR_ALERTA - correos_enviados - 1
+        url_cancelar = url_for('cancelar_alerta', alerta_id=alerta_id, _external=True)
 
         mensaje = {
             "senderAddress": config.SENDER_EMAIL,
@@ -261,31 +240,65 @@ def enviar_notificacion(email_destino, termino, objeto):
                     <br>
                     <img src="{objeto['imagen_url']}" style="max-width: 300px; border-radius: 8px;">
                     <br><br>
-                    <p style="color: #999; font-size: 0.85rem;">LostFinder AI — Powered by Microsoft Azure</p>
+                    <hr style="border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 0.85rem; color: #666;">
+                        Notificaciones restantes para esta alerta: <strong>{correos_restantes}</strong><br>
+                        ¿Ya encontraste tu objeto o ya no deseas recibir notificaciones?
+                        <a href="{url_cancelar}" style="color: #c0392b;">Cancelar esta alerta</a>
+                    </p>
+                    <p style="color: #999; font-size: 0.8rem;">LostFinder AI — Powered by Microsoft Azure</p>
                 </body>
                 </html>
                 """
             }
         }
         poller = email_client.begin_send(mensaje)
-        resultado = poller.result()
-        print(f"Email enviado exitosamente: {resultado}")
+        poller.result()
+        print(f"Email enviado exitosamente a {email_destino}")
+        return True
     except Exception as e:
         print(f"Error enviando email: {type(e).__name__}: {e}")
+        return False
 
-def notificar_alertas(etiquetas_en, objeto):
-    """Busca alertas registradas y notifica si hay coincidencias"""
+
+def notificar_alertas(etiquetas_es, objeto):
+    """Busca alertas activas y notifica si hay coincidencias respetando el límite"""
     try:
         db = get_db()
-        alertas = db.execute('SELECT * FROM alertas').fetchall()
+        alertas = db.execute(
+            'SELECT * FROM alertas WHERE activa = 1 AND correos_enviados < ?',
+            (MAX_CORREOS_POR_ALERTA,)
+        ).fetchall()
         db.close()
 
-        etiquetas_lista = [e.strip().lower() for e in etiquetas_en.split(',')]
+        etiquetas_lista = [e.strip().lower() for e in etiquetas_es.split(',')]
 
         for alerta in alertas:
             termino = alerta['termino_busqueda'].lower()
             if any(termino in etiqueta for etiqueta in etiquetas_lista):
-                enviar_notificacion(alerta['email'], alerta['termino_busqueda'], objeto)
+                enviado = enviar_notificacion(
+                    alerta['id'],
+                    alerta['email'],
+                    alerta['termino_busqueda'],
+                    objeto,
+                    alerta['correos_enviados']
+                )
+                if enviado:
+                    db = get_db()
+                    nuevos_correos = alerta['correos_enviados'] + 1
+                    if nuevos_correos >= MAX_CORREOS_POR_ALERTA:
+                        db.execute(
+                            'UPDATE alertas SET correos_enviados = ?, activa = 0 WHERE id = ?',
+                            (nuevos_correos, alerta['id'])
+                        )
+                        print(f"Alerta {alerta['id']} desactivada por límite de correos")
+                    else:
+                        db.execute(
+                            'UPDATE alertas SET correos_enviados = ? WHERE id = ?',
+                            (nuevos_correos, alerta['id'])
+                        )
+                    db.commit()
+                    db.close()
     except Exception as e:
         print(f"Error en notificar_alertas: {e}")
 
@@ -343,6 +356,7 @@ def upload():
         db.close()
 
         notificar_alertas(analisis['etiquetas'], objeto)
+
         return redirect(url_for('resultado', objeto_id=objeto_id))
 
     return render_template('upload.html')
@@ -356,6 +370,41 @@ def resultado(objeto_id):
     if not objeto:
         return redirect(url_for('index'))
     return render_template('results.html', objeto=objeto)
+
+
+@app.route('/eliminar/<int:objeto_id>', methods=['POST'])
+def eliminar(objeto_id):
+    db = get_db()
+    objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
+
+    if objeto:
+        try:
+            nombre_blob = objeto['imagen_url'].split('/')[-1]
+            blob_client = blob_service_client.get_blob_client(
+                container=config.BLOB_CONTAINER_NAME,
+                blob=nombre_blob
+            )
+            blob_client.delete_blob()
+        except Exception as e:
+            print(f"Error eliminando imagen de Blob Storage: {e}")
+
+        db.execute('DELETE FROM objetos WHERE id = ?', (objeto_id,))
+        db.commit()
+
+    db.close()
+    return redirect(url_for('index'))
+
+
+@app.route('/cancelar_alerta/<int:alerta_id>')
+def cancelar_alerta(alerta_id):
+    """Desactiva una alerta desde el enlace del correo"""
+    db = get_db()
+    alerta = db.execute('SELECT * FROM alertas WHERE id = ?', (alerta_id,)).fetchone()
+    if alerta:
+        db.execute('UPDATE alertas SET activa = 0 WHERE id = ?', (alerta_id,))
+        db.commit()
+    db.close()
+    return render_template('alerta_cancelada.html')
 
 
 @app.route('/search')
@@ -388,29 +437,6 @@ def search():
     return render_template('search.html', objetos=objetos, query=query, email_alerta=email_alerta)
 
 
-@app.route('/eliminar/<int:objeto_id>', methods=['POST'])
-def eliminar(objeto_id):
-    db = get_db()
-    objeto = db.execute('SELECT * FROM objetos WHERE id = ?', (objeto_id,)).fetchone()
-
-    if objeto:
-        # Eliminar imagen de Blob Storage
-        try:
-            nombre_blob = objeto['imagen_url'].split('/')[-1]
-            blob_client = blob_service_client.get_blob_client(
-                container=config.BLOB_CONTAINER_NAME,
-                blob=nombre_blob
-            )
-            blob_client.delete_blob()
-        except Exception as e:
-            print(f"Error eliminando imagen de Blob Storage: {e}")
-
-        # Eliminar registro de la base de datos
-        db.execute('DELETE FROM objetos WHERE id = ?', (objeto_id,))
-        db.commit()
-
-    db.close()
-    return redirect(url_for('index'))
 # ──────────────────────────────────────────────
 # INICIO
 # ──────────────────────────────────────────────

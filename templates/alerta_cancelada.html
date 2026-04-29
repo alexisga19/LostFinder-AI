@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="form-section" style="text-align: center; padding: 3rem;">
+    <h2 style="color: #2d7a3a;">✅ Alerta cancelada exitosamente</h2>
+    <p style="margin-top: 1rem; color: #666;">
+        Ya no recibirás notificaciones para esta búsqueda.
+        Si pierdes otro objeto puedes registrar una nueva alerta desde la página de búsqueda.
+    </p>
+    <div style="margin-top: 2rem;">
+        <a href="{{ url_for('index') }}" class="btn-primary">Ir al inicio</a>
+        <a href="{{ url_for('search') }}" class="btn-secondary">Buscar otro objeto</a>
+    </div>
+</section>
+
+{% endblock %}
